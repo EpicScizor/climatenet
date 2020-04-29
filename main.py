@@ -165,6 +165,26 @@ model.compile(optimizer=opt,
 					   'mean_squared_error',
 					   'logcosh'])		   
 					   
+callbacks = [
+    # Horovod: broadcast initial variable states from rank 0 to all other processes.
+    # This is necessary to ensure consistent initialization of all workers when
+    # training is started with random weights or restored from a checkpoint.
+    hvd.callbacks.BroadcastGlobalVariablesCallback(0),
+
+    # Horovod: average metrics among workers at the end of every epoch.
+    #
+    # Note: This callback must be in the list before the ReduceLROnPlateau,
+    # TensorBoard or other metrics-based callbacks.
+    hvd.callbacks.MetricAverageCallback(),
+
+    # Horovod: using `lr = 1.0 * hvd.size()` from the very beginning leads to worse final
+    # accuracy. Scale the learning rate `lr = 1.0` ---> `lr = 1.0 * hvd.size()` during
+    # the first three epochs. See https://arxiv.org/abs/1706.02677 for details.
+    hvd.callbacks.LearningRateWarmupCallback(warmup_epochs=3, verbose=1),
+]
+if hvd.rank() == 0:
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint('./checkpoint-{epoch}.h5'))
+	
 verbose = g.VERBOSITY if hvd.rank() == 0 else 0
 
 # NOTE !!! EVEN THO BELOW WE USE A WORD "DAY" WE REALLY MEAN "TICK"
@@ -184,6 +204,7 @@ if len(data_by_days) >= 2:
     history = model.fit(generator,
               epochs=epochs_count,
               verbose=verbose,
+			  callbacks=callbacks,
               validation_data=validation_generator)
     
     # LOG STUFF
