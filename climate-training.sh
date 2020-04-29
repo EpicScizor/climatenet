@@ -7,9 +7,9 @@
 #SBATCH --partition=GPUQ		
 #SBATCH --time=01:00:00
 #SBATCH --nodes=2
-#SBATCH --ntasks=2
-#SBATCH --cpus-per-task=1
-#SBATCH --gres=gpu:1
+#SBATCH --ntasks-per-node=2
+#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:2
 #SBATCH --mem=100GB
 
 # -- I/O --
@@ -40,5 +40,5 @@ echo "== Job NNODES: ${SLURM_NNODES}"
 echo "== Node list: ${SLURM_NODELIST}"
 echo "== Submit dir. : ${SLURM_SUBMIT_DIR}"
 
-horovodrun python main.py
+horovodrun -np $SLURM_NTASKS python main.py --variable_update horovod
 
