@@ -4,12 +4,12 @@ import pathlib
 import matplotlib.pyplot as plt
 import gdal
 import tensorflow as tf
+import horovod.tensorflow as hvd
 import numpy as np
 import sys
 
 import globalvars as g
-
-from slurm_cluster_resolver import SlurmClusterResolver ##Code copied from GitHub. Has been reviewed and merged into tensorflow github, but is so fresh it hasn't been published yet.
+#from slurm_cluster_resolver import SlurmClusterResolver ##Code copied from GitHub. Has been reviewed and merged into tensorflow github, but is so fresh it hasn't been published yet.
 from data_generator import DataGenerator
 from model import get_model
 from included_vars import data_vars, vars_to_plot, operators
@@ -17,7 +17,6 @@ from included_vars import data_vars, vars_to_plot, operators
 print('Python version: %s' % sys.version)
 print('TensorFlow version: %s' % tf.__version__)
 print('Keras version: %s' % tf.keras.__version__)
-
 
 def set_tf_config(resolver, environment=None):
     """Set the TF_CONFIG env variable from the given cluster resolver - from https://github.com/tensorflow/tensorflow/issues/36094"""
@@ -32,6 +31,7 @@ def set_tf_config(resolver, environment=None):
     if environment:
         cfg['environment'] = environment
     os.environ['TF_CONFIG'] = json.dumps(cfg)
+
 def get_band_identifier(band_data):
     desc = band_data.GetDescription()
     metadata = band_data.GetMetadata()     
@@ -56,6 +56,17 @@ def get_input_dimensions(nparrays):
     return size * size * len(nparrays) + 4 # x, y, day, time
 def get_output_dimensions(nparrays):
     return len(nparrays)
+
+
+# Initialize horovod
+hvd.init()
+gpus = tf.config.experimental.list_physical_devices('GPU')
+for gpu in gpus:
+    tf.config.experimental.set_memory_growth(gpu, True)
+if gpus:
+    tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
+
+
 
 # Loop over all data files
 path = os.path.join(pathlib.Path(__file__).parent.absolute(), "data")
@@ -131,23 +142,40 @@ print("INPUT SIZE: " + str(g.INPUT_SIZE))
 g.OUTPUT_SIZE = get_output_dimensions(data_by_days[0])
 print("OUTPUT SIZE: " + str(g.OUTPUT_SIZE))
 
-#strategy = tf.distribute.MirroredStrategy() ## Previous singlenode, multiGPU strat
-resolver = SlurmClusterResolver()
-set_tf_config(resolver)
-strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(cluster_resolver=resolver)
-print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
-with strategy.scope():
-    model = get_model()
+# Model goes here
+model = tf.keras.models.Sequential([
+	tf.keras.layers.Dense(g.INPUT_SIZE, activation='relu', input_dim=g.INPUT_SIZE),
+	tf.keras.layers.Dense(g.INPUT_SIZE * 2, activation='relu'),
+	tf.keras.layers.Dropout(rate=0.15),
+	tf.keras.layers.Dense(g.INPUT_SIZE * 2, activation='relu'),
+	tf.keras.layers.Dropout(rate=0.15),
+	tf.keras.layers.Dense(g.INPUT_SIZE * 2, activation='relu'),
+	tf.keras.layers.Dropout(rate=0.15),
+	tf.keras.layers.Dense(g.OUTPUT_SIZE, activation='relu')
+])
+
+opt = tf.keras.optimizers.Adadelta(learning_rate=0.001 * hvd.size())
+opt = hvd.DistributedOptimizer(opt)
+
+model.compile(optimizer=opt,
+			  loss='mean_squared_error',
+			  experimental_run_tf_function=False,
+			  metrics=['mean_absolute_error', 
+					   'mean_squared_logarithmic_error',
+					   'mean_squared_error',
+					   'logcosh'])		   
+					   
+verbose = g.VERBOSITY if hvd.rank() == 0 else 0
 
 # NOTE !!! EVEN THO BELOW WE USE A WORD "DAY" WE REALLY MEAN "TICK"
 if len(data_by_days) >= 2:
     generator = DataGenerator(
         data_by_days, 
-        batch_size=g.BATCH_SIZE*strategy.num_replicas_in_sync, 
+        batch_size=g.BATCH_SIZE, 
         len_multiplier=g.EPOCH_LENGHT_MULTIPLIER)
     validation_generator = DataGenerator(
         data_by_days, 
-        batch_size=g.BATCH_SIZE*strategy.num_replicas_in_sync,
+        batch_size=g.BATCH_SIZE,
         len_multiplier=g.VALIDATION_LENGTH_MULTIPLIER)
     print("Generator len: " + str(len(generator)))
     print(model.summary())
@@ -155,7 +183,7 @@ if len(data_by_days) >= 2:
     epochs_count = g.EPOCHS
     history = model.fit(generator,
               epochs=epochs_count,
-              verbose=g.VERBOSITY,
+              verbose=verbose,
               validation_data=validation_generator)
     
     # LOG STUFF

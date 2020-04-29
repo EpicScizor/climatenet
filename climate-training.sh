@@ -1,15 +1,15 @@
 #!/bin/sh
 
 # -- job description --
-#SBATCH --job-name="2node-2GPU-4CPU"
+#SBATCH --job-name="hvd-2node-2GPU-4CPU"
 
 # -- resource allocation --
 #SBATCH --partition=GPUQ		
 #SBATCH --time=01:00:00
 #SBATCH --nodes=2
 #SBATCH --ntasks=2
-#SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:2
+#SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:1
 #SBATCH --mem=100GB
 
 # -- I/O --
@@ -22,12 +22,16 @@
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export KMP_BLOCKTIME=0
 export KMP_AFFINITY=granularity=fine,compact,0,0
+export HOROVOD_GPU_ALLREDUCE=NCCL
+export HOROVOD_GPU_BROADCAST=NCCL
 
 module purge
 module load fosscuda/2019b
 module load NCCL/2.4.8
 module load TensorFlow/2.1.0-Python-3.7.4
 module load GDAL/3.0.2-Python-3.7.4
+
+source venv-climate/bin/activate
 
 echo "== Starting run at $(date)"
 echo "== Job ID: ${SLURM_JOBID}"
@@ -36,5 +40,5 @@ echo "== Job NNODES: ${SLURM_NNODES}"
 echo "== Node list: ${SLURM_NODELIST}"
 echo "== Submit dir. : ${SLURM_SUBMIT_DIR}"
 
-srun python main.py
+horovodrun python main.py
 
