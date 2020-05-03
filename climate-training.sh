@@ -7,9 +7,9 @@
 #SBATCH --partition=GPUQ		
 #SBATCH --time=01:00:00
 #SBATCH --nodes=2
-#SBATCH --ntasks-per-node=2
-#SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:2
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:1
 #SBATCH --mem=100GB
 
 # -- I/O --
@@ -18,8 +18,7 @@
 
 #Add the following to ignore any incidental GPUs you may have: os.environ['CUDA_VISIBLE_DEVICES'] = '-1' #Hide the GPUs from tensorflow, if any
 #To requisition a live node: salloc --nodes=1 --partition=GPUQ --gres=gpu:1 --time=00:30:00
-
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OMP_NUM_THREADS=$SLURM_NTASKS
 export KMP_BLOCKTIME=0
 export KMP_AFFINITY=granularity=fine,compact,0,0
 export HOROVOD_GPU_ALLREDUCE=NCCL
@@ -35,10 +34,13 @@ source venv-climate/bin/activate
 
 echo "== Starting run at $(date)"
 echo "== Job ID: ${SLURM_JOBID}"
+echo "== Job NTASKS: ${SLURM_NTASKS}"
 echo "== Job NPROCS: ${SLURM_NPROCS}"
 echo "== Job NNODES: ${SLURM_NNODES}"
 echo "== Node list: ${SLURM_NODELIST}"
 echo "== Submit dir. : ${SLURM_SUBMIT_DIR}"
 
-horovodrun -np $SLURM_NTASKS python main.py --variable_update horovod
+horovodrun -np ${SLURM_NTASKS} python main.py --variable_update horovod
+
+echo "== Job's done at $(date)"
 
