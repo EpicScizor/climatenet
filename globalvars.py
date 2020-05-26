@@ -8,9 +8,9 @@ RADIUS = 2 # 4 # how many cells in any direction do we use?
 ### TRAINING PARAMS ###
 #######################
 EPOCHS = 10
-EPOCH_LENGHT_MULTIPLIER = 0.1
+EPOCH_LENGHT_MULTIPLIER = 1
 BATCH_SIZE = 32
-VALIDATION_LENGTH_MULTIPLIER = 0.001
+VALIDATION_LENGTH_MULTIPLIER = 0.01
 
 
 ################################
